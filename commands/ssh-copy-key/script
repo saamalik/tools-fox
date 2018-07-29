@@ -86,7 +86,7 @@ case "$ssh_response" in
 esac
 
 if [ "$password" = "true" ]; then
-  key=$(<~/Documents/cliqr/ssh_keys/id_rsa_cliqrdev.pub)
+  key=$(<~/.ssh/tools-fox-key.pub)
   command="sudo -H bash -c 'grep -q \"${key:0:50}\" ~/.ssh/authorized_keys || \
     { echo \"Added dev key (password)\">&2; mkdir -p ~/.ssh; echo \"${key}\" >> ~/.ssh/authorized_keys; restorecon -Rv ~/.ssh || echo No Restorecon; }'"
 
