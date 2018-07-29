@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+# To implement this command, edit the "Command implementation" section below. 
+
+# Usage
+# -----
+
+# Comments prefixed with `#/` are managed by stubbs.
+# The `command` and `usage` comments describe the command
+# and show its options.
+# 
+#/ command: tools-fox:ssh-copy-key: "Copy the dev ssh key to box"
+#/ usage: rerun tools-fox:ssh-copy-key  --host <> 
+
+# Load common functions
+# ---------------------
+
+# Load the function library for this module.
+# This loads rerun functions, too.
+. $RERUN_MODULE_DIR/lib/functions.sh ssh-copy-key || { 
+  echo >&2 "Failed loading function library." ; exit 1 ; 
+}
+
+# Error handling
+# ---------------
+
+# This script is designed to _fail-fast_.
+
+# Trap errors and exit. The call to `rerun_die` will print the
+# the error message and exit with the error command exit status. 
+
+trap 'rerun_die $? "*** command failed: tools-fox:ssh-copy-key. ***"' ERR
+
+# Run [set] `nounset` to treat unset variables as errors. Set [pipefail]
+# so a pipeline return status is the value of the last 
+# (rightmost) command to exit with non-zero status.
+#
+# [set]: http://ss64.com/bash/set.html
+# [pipefail]: http://www.gnu.org/software/bash/manual/html_node/Pipelines.html
+
+set -o nounset -o pipefail
+
+# Command variables
+# -----------------
+
+# This command script can access the following variables
+# declared by `rerun` or by the option parser function.
+
+#/ rerun-variables: RERUN, RERUN_VERSION, RERUN_MODULES, RERUN_MODULE_DIR
+#/ option-variables: HOST
+
+# The `rerun_options_parse` function processes the command line
+# arguments. Each accepted command line flag results in setting 
+# one the corresponding option variables.
+
+rerun_options_parse "$@"
+
+
+# Command implementation
+# ----------------------
+
+error=false
+password=false
+direct=false
+
+echo "Connecting: $HOST (may take 10 seconds)"
+ssh_response=$(ssh -x -o BatchMode=yes -o ConnectTimeout=5 $HOST 'echo User: $(whoami)' 2>&1) || error=true
+
+if [[ "$error" == "true" ]]; then
+  case "$ssh_response" in
+    *"Permission denied"*)  password=true; ssh_response=$(ssh -x -o ConnectTimeout=5 $HOST 'echo User: $(whoami)' 2>&1) || rerun_die "Wrong password?" ;;
+    *) rerun_die "$ssh_response" ;;
+  esac
+
+fi
+
+[[ $password != "true" ]] && [[ "$ssh_response" == "User: root" ]] && { echo "Key already here"; exit 0; }
+
+
+case "$ssh_response" in
+  User*) direct=true; echo "Logged in as ${ssh_response%User: }" ;;
+  *centos*) HOST=centos@$HOST ;;
+  *ubuntu*) HOST=ubuntu@$HOST ;;
+  *ec2-user*) HOST=ec2-user@$HOST ;;
+  *) rerun_die "$ssh_response" ;;
+esac
+
+if [ "$password" = "true" ]; then
+  key=$(<~/Documents/cliqr/ssh_keys/id_rsa_cliqrdev.pub)
+  command="sudo -H bash -c 'grep -q \"${key:0:50}\" ~/.ssh/authorized_keys || \
+    { echo \"Added dev key (password)\">&2; mkdir -p ~/.ssh; echo \"${key}\" >> ~/.ssh/authorized_keys; restorecon -Rv ~/.ssh || echo No Restorecon; }'"
+
+elif [ "$direct" = "true" ]; then
+  command="sudo -H bash -c 'echo \"Added dev key (copy)\">&2;  mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; \
+    cat ~${HOST%%@*}/.ssh/authorized_keys ~/.ssh/authorized_keys > sshk; mv -f sshk ~/.ssh/authorized_keys'"
+else
+  command="sudo -H bash -c 'echo \"Added dev key (sed)\">&2; sed -i \"s/no-port.* ssh-rsa/ssh-rsa/\" ~/.ssh/authorized_keys'"
+fi
+
+# -x no X forwarding
+ssh -t -x "$HOST" "$command"
+
+# Done. Exit with last command exit status.
+exit $?
+
